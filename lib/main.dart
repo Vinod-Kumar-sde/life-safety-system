@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import 'screens/contacts_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'screens/home_screen.dart';
-import 'screens/sos_screen.dart';
 import 'screens/health_screen.dart';
 import 'screens/wearable_screen.dart';
+import 'screens/sos_screen.dart';
+import 'screens/mode_selection_screen.dart';
+import 'screens/women_children_dashboard.dart';
+import 'screens/old_person_dashboard.dart';
 
 void main() {
   runApp(const LifeSafetySystem());
@@ -18,13 +22,76 @@ class LifeSafetySystem extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Life Safety System',
       theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.red,
+        ),
         useMaterial3: true,
       ),
-      home: const MainScreen(),
+      home: const StartScreen(),
     );
   }
 }
 
+// Decides which screen to open when the app starts.
+class StartScreen extends StatefulWidget {
+  const StartScreen({super.key});
+
+  @override
+  State<StartScreen> createState() => _StartScreenState();
+}
+
+class _StartScreenState extends State<StartScreen> {
+  @override
+  void initState() {
+    super.initState();
+    checkSavedMode();
+  }
+
+  Future<void> checkSavedMode() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final savedMode = prefs.getString('safety_mode');
+
+    if (!mounted) return;
+
+    if (savedMode == 'women_children') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              const WomenChildrenDashboard(),
+        ),
+      );
+    } else if (savedMode == 'old_person') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              const OldPersonDashboard(),
+        ),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              const ModeSelectionScreen(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+}
+
+// Existing main navigation screen.
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -33,7 +100,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int currentIndex = 0;
+  int selectedIndex = 0;
 
   final List<Widget> screens = const [
     HomeScreen(),
@@ -45,34 +112,29 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: screens[currentIndex],
-
+      body: screens[selectedIndex],
       bottomNavigationBar: NavigationBar(
-        selectedIndex: currentIndex,
+        selectedIndex: selectedIndex,
         onDestinationSelected: (index) {
           setState(() {
-            currentIndex = index;
+            selectedIndex = index;
           });
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
+            icon: Icon(Icons.home),
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.favorite_border),
-            selectedIcon: Icon(Icons.favorite),
+            icon: Icon(Icons.favorite),
             label: 'Health',
           ),
           NavigationDestination(
-            icon: Icon(Icons.watch_outlined),
-            selectedIcon: Icon(Icons.watch),
+            icon: Icon(Icons.watch),
             label: 'Wearable',
           ),
           NavigationDestination(
-            icon: Icon(Icons.warning_amber_outlined),
-            selectedIcon: Icon(Icons.warning),
+            icon: Icon(Icons.warning),
             label: 'SOS',
           ),
         ],

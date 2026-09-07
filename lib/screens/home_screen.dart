@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
-import 'contacts_screen.dart';
-import 'sos_screen.dart';
-import 'location_screen.dart';
+import 'mode_selection_screen.dart';
 import 'settings_screen.dart';
+import 'contacts_screen.dart';
+import 'location_screen.dart';
+import 'sos_screen.dart';
+
 import '../services/network_service.dart';
 import '../services/wearable_service.dart';
 
@@ -15,295 +17,406 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool networkConnected = true;
+  bool internetConnected = false;
 
   @override
   void initState() {
     super.initState();
-    checkNetwork();
+    checkInternet();
   }
 
-  Future<void> checkNetwork() async {
+  Future<void> checkInternet() async {
     final connected = await NetworkService.isConnected();
 
     if (!mounted) return;
 
     setState(() {
-      networkConnected = connected;
+      internetConnected = connected;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final wearableConnected = WearableService.connected;
-    final fallDetected = WearableService.fallDetected;
+    return ListenableBuilder(
+      listenable: WearableService.instance,
+      builder: (context, child) {
+        final wearable = WearableService.instance;
+        final connected = wearable.connected;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Life Safety System'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SettingsScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.contacts),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ContactsScreen(),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Welcome',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Internet status
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  networkConnected
-                      ? Icons.wifi
-                      : Icons.wifi_off,
-                  size: 35,
-                ),
-                title: const Text('Internet'),
-                subtitle: Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: networkConnected
-                            ? Colors.green
-                            : Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      networkConnected
-                          ? 'Connected'
-                          : 'No internet connection',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Wearable status
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  wearableConnected
-                      ? Icons.bluetooth_connected
-                      : Icons.bluetooth_disabled,
-                  size: 35,
-                ),
-                title: const Text('Wearable'),
-                subtitle: Text(
-                  wearableConnected
-                      ? 'Connected'
-                      : 'Not connected',
-                ),
-                trailing: Icon(
-                  wearableConnected
-                      ? Icons.check_circle
-                      : Icons.bluetooth_disabled,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 15),
-
-            // SOS button
-            GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SOSScreen(),
-                  ),
-                );
-              },
-              child: Container(
-                width: double.infinity,
-                height: 160,
-                decoration: BoxDecoration(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.warning,
-                      color: Colors.white,
-                      size: 60,
-                    ),
-                    SizedBox(height: 10),
-                    Text(
-                      'SOS',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      'Emergency',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            const Text(
-              'Health',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            Row(
-              children: [
-                Expanded(
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          const Icon(
-                            Icons.favorite,
-                            color: Colors.red,
-                            size: 35,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text('Heart Rate'),
-                          const SizedBox(height: 5),
-                          Text(
-                            wearableConnected
-                                ? '${WearableService.heartRate} BPM'
-                                : '-- BPM',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                Expanded(
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          const Icon(
-                            Icons.bloodtype,
-                            size: 35,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text('SpO₂'),
-                          const SizedBox(height: 5),
-                          Text(
-                            wearableConnected
-                                ? '${WearableService.spo2}%'
-                                : '-- %',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 10),
-
-            // Fall detection
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  fallDetected
-                      ? Icons.warning
-                      : Icons.check_circle,
-                  size: 35,
-                ),
-                title: const Text('Fall Detection'),
-                subtitle: Text(
-                  !wearableConnected
-                      ? 'Unavailable - wearable disconnected'
-                      : fallDetected
-                          ? 'Possible fall detected!'
-                          : 'No fall detected',
-                ),
-                trailing: Icon(
-                  fallDetected
-                      ? Icons.warning
-                      : Icons.check_circle,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Location
-            Card(
-              child: ListTile(
-                leading: const Icon(
-                  Icons.location_on,
-                  size: 35,
-                ),
-                title: const Text('Location'),
-                subtitle: const Text(
-                  'Tap to get your current location',
-                ),
-                trailing: const Icon(
-                  Icons.arrow_forward_ios,
-                ),
-                onTap: () {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Life Safety System'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.contacts),
+                tooltip: 'Emergency Contacts',
+                onPressed: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const LocationScreen(),
+                      builder: (context) =>
+                          const ContactsScreen(),
                     ),
                   );
                 },
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings),
+                tooltip: 'Settings',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const SettingsScreen(),
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.swap_horiz),
+                tooltip: 'Switch Safety Mode',
+                onPressed: () {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const ModeSelectionScreen(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+
+          body: RefreshIndicator(
+            onRefresh: () async {
+              await checkInternet();
+              wearable.generateTestData();
+
+              await Future.delayed(
+                const Duration(milliseconds: 500),
+              );
+            },
+
+            child: SingleChildScrollView(
+              physics:
+                  const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+
+              child: Column(
+                children: [
+                  // Welcome
+                  Card(
+                    elevation: 3,
+                    color: Colors.red.shade50,
+                    child: const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.shield,
+                            size: 60,
+                            color: Colors.red,
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            'Life Safety System',
+                            style: TextStyle(
+                              fontSize: 25,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Your personal safety and health monitoring system',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  // Internet status
+                  Card(
+                    child: ListTile(
+                      leading: Icon(
+                        internetConnected
+                            ? Icons.wifi
+                            : Icons.wifi_off,
+                        color: internetConnected
+                            ? Colors.green
+                            : Colors.red,
+                        size: 35,
+                      ),
+                      title: const Text(
+                        'Internet Connection',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        internetConnected
+                            ? 'Internet is available'
+                            : 'Internet unavailable - GSM backup may be required',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Wearable status
+                  Card(
+                    child: ListTile(
+                      leading: Icon(
+                        connected
+                            ? Icons.bluetooth_connected
+                            : Icons.bluetooth_disabled,
+                        color: connected
+                            ? Colors.green
+                            : Colors.grey,
+                        size: 35,
+                      ),
+                      title: const Text(
+                        'Wearable Status',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        connected
+                            ? 'Wearable connected'
+                            : 'Wearable disconnected',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Health data
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _dataCard(
+                          Icons.favorite,
+                          'Heart Rate',
+                          connected
+                              ? '${wearable.heartRate} BPM'
+                              : '-- BPM',
+                        ),
+                      ),
+                      Expanded(
+                        child: _dataCard(
+                          Icons.bloodtype,
+                          'SpO₂',
+                          connected
+                              ? '${wearable.spo2}%'
+                              : '-- %',
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Fall detection
+                  Card(
+                    child: ListTile(
+                      leading: Icon(
+                        wearable.fallDetected
+                            ? Icons.warning
+                            : Icons.check_circle,
+                        color: wearable.fallDetected
+                            ? Colors.red
+                            : Colors.green,
+                        size: 35,
+                      ),
+                      title: const Text(
+                        'Fall Detection',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        !connected
+                            ? 'Unavailable'
+                            : wearable.fallDetected
+                                ? 'Possible fall detected!'
+                                : 'No fall detected',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Battery
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.battery_full,
+                        size: 35,
+                      ),
+                      title: const Text(
+                        'Wearable Battery',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        connected
+                            ? '${wearable.battery}% remaining'
+                            : 'Unavailable',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // SOS
+                  SizedBox(
+                    width: double.infinity,
+                    height: 110,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(18),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const SOSScreen(),
+                          ),
+                        );
+                      },
+                      child: const Column(
+                        mainAxisAlignment:
+                            MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.warning,
+                            size: 40,
+                          ),
+                          SizedBox(height: 5),
+                          Text(
+                            'SEND SOS',
+                            style: TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  // Location
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.location_on,
+                        color: Colors.green,
+                        size: 35,
+                      ),
+                      title: const Text(
+                        'Live Location',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'View your current GPS location',
+                      ),
+                      trailing: const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 18,
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const LocationScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Contacts
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.contacts,
+                        color: Colors.orange,
+                        size: 35,
+                      ),
+                      title: const Text(
+                        'Emergency Contacts',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Manage trusted emergency contacts',
+                      ),
+                      trailing: const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 18,
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const ContactsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _dataCard(
+    IconData icon,
+    String title,
+    String value,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 35,
+            ),
+            const SizedBox(height: 8),
+            Text(title),
+            const SizedBox(height: 5),
+            Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
               ),
             ),
           ],
