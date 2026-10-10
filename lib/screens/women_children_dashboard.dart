@@ -7,6 +7,9 @@ import 'location_screen.dart';
 import 'contacts_screen.dart';
 import 'wearable_screen.dart';
 import 'safe_zone_screen.dart';
+import 'safety_notifications_screen.dart';
+
+import '../services/safety_notification_service.dart';
 
 class WomenChildrenDashboard extends StatefulWidget {
   const WomenChildrenDashboard({super.key});
@@ -18,7 +21,12 @@ class WomenChildrenDashboard extends StatefulWidget {
 
 class _WomenChildrenDashboardState
     extends State<WomenChildrenDashboard> {
+  final SafetyNotificationService notificationService =
+      SafetyNotificationService.instance;
+
   Future<void> refreshDashboard() async {
+    await notificationService.loadNotifications();
+
     await Future.delayed(
       const Duration(milliseconds: 700),
     );
@@ -28,183 +36,333 @@ class _WomenChildrenDashboardState
     setState(() {});
   }
 
+  void openNotifications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            const SafetyNotificationsScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const ModeSelectionScreen(),
-          ),
-        );
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: Colors.pink,
-          foregroundColor: Colors.white,
-          title: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Women & Children',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+    return ListenableBuilder(
+      listenable: notificationService,
+      builder: (context, child) {
+        final unreadCount =
+            notificationService.unreadCount;
+
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    const ModeSelectionScreen(),
               ),
-              Text(
-                'Safety Dashboard',
-                style: TextStyle(fontSize: 12),
+            );
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              backgroundColor: Colors.pink,
+              foregroundColor: Colors.white,
+              title: const Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Women & Children',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'Safety Dashboard',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.settings),
-              tooltip: 'Settings',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SettingsScreen(),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.swap_horiz),
-              tooltip: 'Switch Safety Mode',
-              onPressed: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        const ModeSelectionScreen(),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-        body: RefreshIndicator(
-          onRefresh: refreshDashboard,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Card(
-                  color: Colors.pink.shade50,
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Padding(
-                    padding: EdgeInsets.all(18),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Stay Safe',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.pink,
+              actions: [
+                // Notifications
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.notifications_outlined,
+                      ),
+                      tooltip: 'Safety Notifications',
+                      onPressed: openNotifications,
+                    ),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: 7,
+                        top: 7,
+                        child: Container(
+                          constraints:
+                              const BoxConstraints(
+                            minWidth: 18,
+                            minHeight: 18,
+                          ),
+                          padding:
+                              const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius:
+                                BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.pink,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Text(
+                            unreadCount > 99
+                                ? '99+'
+                                : '$unreadCount',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight:
+                                  FontWeight.bold,
+                            ),
                           ),
                         ),
-                        SizedBox(height: 6),
-                        Text(
-                          'Your emergency tools are ready whenever you need them.',
-                          style: TextStyle(fontSize: 15),
+                      ),
+                  ],
+                ),
+
+                // Settings
+                IconButton(
+                  icon: const Icon(Icons.settings),
+                  tooltip: 'Settings',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const SettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                // Switch mode
+                IconButton(
+                  icon: const Icon(Icons.swap_horiz),
+                  tooltip: 'Switch Safety Mode',
+                  onPressed: () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const ModeSelectionScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            body: RefreshIndicator(
+              onRefresh: refreshDashboard,
+              child: SingleChildScrollView(
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Card(
+                      color: Colors.pink.shade50,
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(16),
+                      ),
+                      child: const Padding(
+                        padding: EdgeInsets.all(18),
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Stay Safe',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight:
+                                    FontWeight.bold,
+                                color: Colors.pink,
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              'Your emergency tools are ready whenever you need them.',
+                              style: TextStyle(
+                                fontSize: 15,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.swipe_down,
+                                  color: Colors.pink,
+                                  size: 18,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  'Pull down to refresh',
+                                  style: TextStyle(
+                                    color: Colors.pink,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        SizedBox(height: 8),
-                        Row(
+                      ),
+                    ),
+
+                    const SizedBox(height: 15),
+
+                    // SOS
+                    SizedBox(
+                      width: double.infinity,
+                      height: 115,
+                      child: ElevatedButton(
+                        style:
+                            ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor:
+                              Colors.white,
+                          shape:
+                              RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(
+                              18,
+                            ),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const SOSScreen(),
+                            ),
+                          );
+                        },
+                        child: const Column(
+                          mainAxisAlignment:
+                              MainAxisAlignment.center,
                           children: [
                             Icon(
-                              Icons.swipe_down,
-                              color: Colors.pink,
-                              size: 18,
+                              Icons.warning,
+                              size: 42,
                             ),
-                            SizedBox(width: 5),
+                            SizedBox(height: 5),
                             Text(
-                              'Pull down to refresh',
+                              'SEND SOS ALERT',
                               style: TextStyle(
-                                color: Colors.pink,
-                                fontSize: 13,
+                                fontSize: 21,
+                                fontWeight:
+                                    FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 15),
-
-                // SOS
-                SizedBox(
-                  width: double.infinity,
-                  height: 115,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(18),
                       ),
                     ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              const SOSScreen(),
-                        ),
-                      );
-                    },
-                    child: const Column(
-                      mainAxisAlignment:
-                          MainAxisAlignment.center,
+
+                    const SizedBox(height: 18),
+
+                    // Quick actions
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics:
+                          const NeverScrollableScrollPhysics(),
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.15,
                       children: [
-                        Icon(
-                          Icons.warning,
-                          size: 42,
+                        _quickButton(
+                          context,
+                          Icons.location_on,
+                          'Location',
+                          Colors.green,
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const LocationScreen(),
+                              ),
+                            );
+                          },
                         ),
-                        SizedBox(height: 5),
-                        Text(
-                          'SEND SOS ALERT',
-                          style: TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        _quickButton(
+                          context,
+                          Icons.contacts,
+                          'Contacts',
+                          Colors.orange,
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const ContactsScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        _quickButton(
+                          context,
+                          Icons.watch,
+                          'Wearable',
+                          Colors.purple,
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const WearableScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        _quickButton(
+                          context,
+                          Icons.call,
+                          'Emergency',
+                          Colors.red,
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const SOSScreen(),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
-                  ),
-                ),
 
-                const SizedBox(height: 18),
+                    const SizedBox(height: 18),
 
-                // Quick actions
-                GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics:
-                      const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 1.15,
-                  children: [
-                    _quickButton(
+                    _optionCard(
                       context,
                       Icons.location_on,
-                      'Location',
-                      Colors.green,
+                      'Live Location',
+                      'View your current location',
+                      Colors.pink,
                       () {
                         Navigator.push(
                           context,
@@ -215,11 +373,13 @@ class _WomenChildrenDashboardState
                         );
                       },
                     ),
-                    _quickButton(
+
+                    _optionCard(
                       context,
                       Icons.contacts,
-                      'Contacts',
-                      Colors.orange,
+                      'Emergency Contacts',
+                      'Manage trusted contacts',
+                      Colors.pink,
                       () {
                         Navigator.push(
                           context,
@@ -230,11 +390,30 @@ class _WomenChildrenDashboardState
                         );
                       },
                     ),
-                    _quickButton(
+
+                    _optionCard(
+                      context,
+                      Icons.shield,
+                      'Safe Zone',
+                      'Safety zone and location protection',
+                      Colors.pink,
+                      () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const SafeZoneScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    _optionCard(
                       context,
                       Icons.watch,
                       'Wearable',
-                      Colors.purple,
+                      'Check wearable connection and status',
+                      Colors.pink,
                       () {
                         Navigator.push(
                           context,
@@ -245,123 +424,37 @@ class _WomenChildrenDashboardState
                         );
                       },
                     ),
-                    _quickButton(
-                      context,
-                      Icons.call,
-                      'Emergency',
-                      Colors.red,
-                      () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const SOSScreen(),
-                          ),
-                        );
-                      },
+
+                    const SizedBox(height: 10),
+
+                    Card(
+                      color: Colors.pink.shade50,
+                      child: const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.pink,
+                              size: 30,
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Your safety features are available from this dashboard.',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 18),
-
-                _optionCard(
-                  context,
-                  Icons.location_on,
-                  'Live Location',
-                  'View your current location',
-                  Colors.pink,
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const LocationScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                _optionCard(
-                  context,
-                  Icons.contacts,
-                  'Emergency Contacts',
-                  'Manage trusted contacts',
-                  Colors.pink,
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const ContactsScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                // Safe Zone
-                _optionCard(
-                  context,
-                  Icons.shield,
-                  'Safe Zone',
-                  'Safety zone and location protection',
-                  Colors.pink,
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const SafeZoneScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                _optionCard(
-                  context,
-                  Icons.watch,
-                  'Wearable',
-                  'Check wearable connection and status',
-                  Colors.pink,
-                  () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const WearableScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 10),
-
-                Card(
-                  color: Colors.pink.shade50,
-                  child: const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.pink,
-                          size: 30,
-                        ),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Your safety features are available from this dashboard.',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -415,7 +508,8 @@ class _WomenChildrenDashboardState
     VoidCallback onTap,
   ) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin:
+          const EdgeInsets.only(bottom: 10),
       elevation: 2,
       child: ListTile(
         contentPadding:

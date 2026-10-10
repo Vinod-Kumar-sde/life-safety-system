@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,9 +9,17 @@ import 'screens/sos_screen.dart';
 import 'screens/mode_selection_screen.dart';
 import 'screens/women_children_dashboard.dart';
 import 'screens/old_person_dashboard.dart';
+import 'services/safety_notification_service.dart';
 
-void main() {
-  runApp(const LifeSafetySystem());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await SafetyNotificationService.instance
+      .initialize();
+
+  runApp(
+    const LifeSafetySystem(),
+  );
 }
 
 class LifeSafetySystem extends StatelessWidget {
@@ -32,12 +41,12 @@ class LifeSafetySystem extends StatelessWidget {
   }
 }
 
-// Decides which screen to open when the app starts.
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
 
   @override
-  State<StartScreen> createState() => _StartScreenState();
+  State<StartScreen> createState() =>
+      _StartScreenState();
 }
 
 class _StartScreenState extends State<StartScreen> {
@@ -48,9 +57,11 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   Future<void> checkSavedMode() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs =
+        await SharedPreferences.getInstance();
 
-    final savedMode = prefs.getString('safety_mode');
+    final savedMode =
+        prefs.getString('safety_mode');
 
     if (!mounted) return;
 
@@ -91,12 +102,12 @@ class _StartScreenState extends State<StartScreen> {
   }
 }
 
-// Existing main navigation screen.
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  State<MainScreen> createState() =>
+      _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
@@ -142,3 +153,4 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 }
+

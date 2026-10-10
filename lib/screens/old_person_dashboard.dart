@@ -10,7 +10,9 @@ import 'wearable_screen.dart';
 import '../services/wearable_service.dart';
 
 class OldPersonDashboard extends StatefulWidget {
-  const OldPersonDashboard({super.key});
+  const OldPersonDashboard({
+    super.key,
+  });
 
   @override
   State<OldPersonDashboard> createState() =>
@@ -19,43 +21,75 @@ class OldPersonDashboard extends StatefulWidget {
 
 class _OldPersonDashboardState
     extends State<OldPersonDashboard> {
-  final WearableService wearable = WearableService.instance;
+  final WearableService wearable =
+      WearableService.instance;
 
   bool fallDialogShowing = false;
   bool previousFallState = false;
+
+  bool inactivitySosShowing = false;
+  bool previousInactivityState = false;
 
   @override
   void initState() {
     super.initState();
 
-    previousFallState = wearable.fallDetected;
-    wearable.addListener(checkFallDetection);
+    wearable.loadInactivitySettings();
+
+    previousFallState =
+        wearable.fallDetected;
+
+    previousInactivityState =
+        wearable.inactivitySosTriggered;
+
+    wearable.addListener(
+      checkSafetyAlerts,
+    );
   }
 
   @override
   void dispose() {
-    wearable.removeListener(checkFallDetection);
+    wearable.removeListener(
+      checkSafetyAlerts,
+    );
+
     super.dispose();
   }
 
-  void checkFallDetection() {
-    if (!mounted) return;
+  void checkSafetyAlerts() {
+    if (!mounted) {
+      return;
+    }
 
-    // Show alert only when fall changes from false -> true.
     if (wearable.fallDetected &&
         !previousFallState &&
         !fallDialogShowing) {
       previousFallState = true;
+
       showFallAlert();
     }
 
     if (!wearable.fallDetected) {
       previousFallState = false;
     }
+
+    if (wearable.inactivitySosTriggered &&
+        !previousInactivityState &&
+        !inactivitySosShowing) {
+      previousInactivityState = true;
+
+      showInactivitySOS();
+    }
+
+    if (!wearable.inactivitySosTriggered) {
+      previousInactivityState = false;
+    }
   }
 
   void showFallAlert() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     fallDialogShowing = true;
 
@@ -73,7 +107,9 @@ class _OldPersonDashboardState
               ),
               SizedBox(width: 10),
               Expanded(
-                child: Text('Fall Detected'),
+                child: Text(
+                  'Fall Detected',
+                ),
               ),
             ],
           ),
@@ -90,12 +126,16 @@ class _OldPersonDashboardState
 
                 fallDialogShowing = false;
               },
-              child: const Text('I AM SAFE'),
+              child:
+                  const Text('I AM SAFE'),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
+              style:
+                  ElevatedButton.styleFrom(
+                backgroundColor:
+                    Colors.red,
+                foregroundColor:
+                    Colors.white,
               ),
               onPressed: () {
                 Navigator.pop(context);
@@ -106,11 +146,14 @@ class _OldPersonDashboardState
                   context,
                   MaterialPageRoute(
                     builder: (context) =>
-                        const SOSScreen(),
+                        const SOSScreen(
+                      autoSend: true,
+                    ),
                   ),
                 );
               },
-              child: const Text('SEND SOS'),
+              child:
+                  const Text('SEND SOS'),
             ),
           ],
         );
@@ -118,17 +161,299 @@ class _OldPersonDashboardState
     );
   }
 
+  void showInactivitySOS() {
+    if (!mounted ||
+        inactivitySosShowing) {
+      return;
+    }
+
+    inactivitySosShowing = true;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            const SOSScreen(
+          autoSend: true,
+        ),
+      ),
+    ).then((_) {
+      inactivitySosShowing = false;
+    });
+  }
+
+  Future<void> showSleepScheduleDialog() async {
+    TimeOfDay start =
+        TimeOfDay(
+      hour: wearable.sleepStartHour,
+      minute: wearable.sleepStartMinute,
+    );
+
+    TimeOfDay end =
+        TimeOfDay(
+      hour: wearable.sleepEndHour,
+      minute: wearable.sleepEndMinute,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder:
+              (context, setDialogState) {
+            return AlertDialog(
+              title: const Text(
+                'Sleep Schedule',
+              ),
+              content: Column(
+                mainAxisSize:
+                    MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(
+                      Icons.bedtime,
+                    ),
+                    title: const Text(
+                      'Sleep starts',
+                    ),
+                    trailing: Text(
+                      start.format(context),
+                    ),
+                    onTap: () async {
+                      final selected =
+                          await showTimePicker(
+                        context: context,
+                        initialTime:
+                            start,
+                      );
+
+                      if (selected !=
+                          null) {
+                        setDialogState(() {
+                          start =
+                              selected;
+                        });
+                      }
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.wb_sunny,
+                    ),
+                    title: const Text(
+                      'Monitoring resumes',
+                    ),
+                    trailing: Text(
+                      end.format(context),
+                    ),
+                    onTap: () async {
+                      final selected =
+                          await showTimePicker(
+                        context: context,
+                        initialTime:
+                            end,
+                      );
+
+                      if (selected !=
+                          null) {
+                        setDialogState(() {
+                          end =
+                              selected;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(
+                    height: 8,
+                  ),
+                  const Text(
+                    'No inactivity alert is generated during this sleep period.',
+                    style: TextStyle(
+                      color: Colors.grey,
+                    ),
+                    textAlign:
+                        TextAlign.center,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(
+                      context,
+                    );
+                  },
+                  child:
+                      const Text('CANCEL'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    await wearable
+                        .setSleepSchedule(
+                      startHour:
+                          start.hour,
+                      startMinute:
+                          start.minute,
+                      endHour:
+                          end.hour,
+                      endMinute:
+                          end.minute,
+                    );
+
+                    if (context.mounted) {
+                      Navigator.pop(
+                        context,
+                      );
+                    }
+                  },
+                  child:
+                      const Text('SAVE'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void>
+      showInactivityLimitDialog() async {
+    int selected =
+        wearable.inactivityLimitHours;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder:
+              (context, setDialogState) {
+            return AlertDialog(
+              title: const Text(
+                'Inactivity Alert',
+              ),
+              content: Column(
+                mainAxisSize:
+                    MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Choose how long there should be no physical activity before an inactivity alert is raised.',
+                  ),
+                  const SizedBox(
+                    height: 15,
+                  ),
+                  DropdownButtonFormField<int>(
+                    initialValue:
+                        [
+                      6,
+                      12,
+                      16,
+                      24,
+                      48,
+                    ].contains(selected)
+                            ? selected
+                            : 24,
+                    decoration:
+                        const InputDecoration(
+                      border:
+                          OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 6,
+                        child: Text(
+                          '6 hours',
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 12,
+                        child: Text(
+                          '12 hours',
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 16,
+                        child: Text(
+                          '16 hours',
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 24,
+                        child: Text(
+                          '24 hours',
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 48,
+                        child: Text(
+                          '48 hours',
+                        ),
+                      ),
+                    ],
+                    onChanged:
+                        (value) {
+                      if (value !=
+                          null) {
+                        setDialogState(() {
+                          selected =
+                              value;
+                        });
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(
+                      context,
+                    );
+                  },
+                  child:
+                      const Text('CANCEL'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    await wearable
+                        .setInactivityLimitHours(
+                      selected,
+                    );
+
+                    if (context.mounted) {
+                      Navigator.pop(
+                        context,
+                      );
+                    }
+                  },
+                  child:
+                      const Text('SAVE'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return ListenableBuilder(
       listenable: wearable,
       builder: (context, child) {
-        final connected = wearable.connected;
-        final fallDetected = wearable.fallDetected;
+        final connected =
+            wearable.connected;
+
+        final fallDetected =
+            wearable.fallDetected;
 
         return PopScope(
           canPop: false,
-          onPopInvokedWithResult: (didPop, result) {
+          onPopInvokedWithResult:
+              (didPop, result) {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
@@ -139,8 +464,10 @@ class _OldPersonDashboardState
           },
           child: Scaffold(
             appBar: AppBar(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
+              backgroundColor:
+                  Colors.blue,
+              foregroundColor:
+                  Colors.white,
               title: const Column(
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
@@ -149,18 +476,23 @@ class _OldPersonDashboardState
                     'Old Person',
                     style: TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                      fontWeight:
+                          FontWeight.bold,
                     ),
                   ),
                   Text(
                     'Health Dashboard',
-                    style: TextStyle(fontSize: 12),
+                    style: TextStyle(
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
               actions: [
                 IconButton(
-                  icon: const Icon(Icons.settings),
+                  icon: const Icon(
+                    Icons.settings,
+                  ),
                   onPressed: () {
                     Navigator.push(
                       context,
@@ -172,7 +504,9 @@ class _OldPersonDashboardState
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.swap_horiz),
+                  icon: const Icon(
+                    Icons.swap_horiz,
+                  ),
                   onPressed: () {
                     Navigator.pushReplacement(
                       context,
@@ -185,41 +519,58 @@ class _OldPersonDashboardState
                 ),
               ],
             ),
-
-            body: RefreshIndicator(
+            body:
+                RefreshIndicator(
               onRefresh: () async {
-                wearable.generateTestData();
+                wearable
+                    .generateTestData();
 
                 await Future.delayed(
-                  const Duration(milliseconds: 500),
+                  const Duration(
+                    milliseconds: 500,
+                  ),
                 );
               },
-
-              child: SingleChildScrollView(
+              child:
+                  SingleChildScrollView(
                 physics:
                     const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-
+                padding:
+                    const EdgeInsets.all(
+                  16,
+                ),
                 child: Column(
                   children: [
-                    // Welcome card
                     Card(
-                      color: Colors.blue.shade50,
-                      child: const Padding(
-                        padding: EdgeInsets.all(18),
+                      color:
+                          Colors.blue.shade50,
+                      child:
+                          const Padding(
+                        padding:
+                            EdgeInsets.all(
+                          18,
+                        ),
                         child: Column(
                           crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                              CrossAxisAlignment
+                                  .start,
                           children: [
                             Text(
                               'Health Monitoring',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
+                              style:
+                                  TextStyle(
+                                fontSize:
+                                    24,
+                                fontWeight:
+                                    FontWeight
+                                        .bold,
+                                color:
+                                    Colors.blue,
                               ),
                             ),
-                            SizedBox(height: 6),
+                            SizedBox(
+                              height: 6,
+                            ),
                             Text(
                               'Monitor vital signs and receive emergency assistance instantly.',
                             ),
@@ -228,50 +579,69 @@ class _OldPersonDashboardState
                       ),
                     ),
 
-                    const SizedBox(height: 15),
+                    const SizedBox(
+                      height: 15,
+                    ),
 
-                    // Wearable
                     Card(
                       child: ListTile(
                         leading: Icon(
                           connected
-                              ? Icons.bluetooth_connected
-                              : Icons.bluetooth_disabled,
-                          color: connected
-                              ? Colors.green
-                              : Colors.grey,
+                              ? Icons
+                                  .bluetooth_connected
+                              : Icons
+                                  .bluetooth_disabled,
+                          color:
+                              connected
+                                  ? Colors
+                                      .green
+                                  : Colors
+                                      .grey,
                           size: 38,
                         ),
-                        title: const Text(
+                        title:
+                            const Text(
                           'Wearable',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                          style:
+                              TextStyle(
+                            fontWeight:
+                                FontWeight
+                                    .bold,
                           ),
                         ),
-                        subtitle: Text(
+                        subtitle:
+                            Text(
                           connected
                               ? 'Connected'
                               : 'Disconnected - health data unavailable',
                         ),
                         trailing: Icon(
                           connected
-                              ? Icons.check_circle
-                              : Icons.error_outline,
-                          color: connected
-                              ? Colors.green
-                              : Colors.grey,
+                              ? Icons
+                                  .check_circle
+                              : Icons
+                                  .error_outline,
+                          color:
+                              connected
+                                  ? Colors
+                                      .green
+                                  : Colors
+                                      .grey,
                         ),
                       ),
                     ),
 
-                    const SizedBox(height: 12),
+                    const SizedBox(
+                      height: 12,
+                    ),
 
-                    // Heart rate + SpO2
                     Row(
                       children: [
                         Expanded(
-                          child: _healthCard(
-                            Icons.favorite,
+                          child:
+                              _healthCard(
+                            Icons
+                                .favorite,
                             'Heart Rate',
                             connected
                                 ? '${wearable.heartRate} BPM'
@@ -279,8 +649,10 @@ class _OldPersonDashboardState
                           ),
                         ),
                         Expanded(
-                          child: _healthCard(
-                            Icons.bloodtype,
+                          child:
+                              _healthCard(
+                            Icons
+                                .bloodtype,
                             'SpO₂',
                             connected
                                 ? '${wearable.spo2}%'
@@ -290,30 +662,45 @@ class _OldPersonDashboardState
                       ],
                     ),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(
+                      height: 10,
+                    ),
 
-                    // Fall detection
                     Card(
-                      color: fallDetected
-                          ? Colors.red.shade50
-                          : null,
-                      child: ListTile(
+                      color:
+                          fallDetected
+                              ? Colors
+                                  .red
+                                  .shade50
+                              : null,
+                      child:
+                          ListTile(
                         leading: Icon(
                           fallDetected
-                              ? Icons.warning
-                              : Icons.check_circle,
-                          color: fallDetected
-                              ? Colors.red
-                              : Colors.green,
+                              ? Icons
+                                  .warning
+                              : Icons
+                                  .check_circle,
+                          color:
+                              fallDetected
+                                  ? Colors
+                                      .red
+                                  : Colors
+                                      .green,
                           size: 38,
                         ),
-                        title: const Text(
+                        title:
+                            const Text(
                           'Fall Detection',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                          style:
+                              TextStyle(
+                            fontWeight:
+                                FontWeight
+                                    .bold,
                           ),
                         ),
-                        subtitle: Text(
+                        subtitle:
+                            Text(
                           !connected
                               ? 'Unavailable - wearable disconnected'
                               : fallDetected
@@ -323,22 +710,30 @@ class _OldPersonDashboardState
                       ),
                     ),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(
+                      height: 10,
+                    ),
 
-                    // Battery
                     Card(
                       child: ListTile(
-                        leading: const Icon(
-                          Icons.battery_full,
+                        leading:
+                            const Icon(
+                          Icons
+                              .battery_full,
                           size: 38,
                         ),
-                        title: const Text(
+                        title:
+                            const Text(
                           'Wearable Battery',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                          style:
+                              TextStyle(
+                            fontWeight:
+                                FontWeight
+                                    .bold,
                           ),
                         ),
-                        subtitle: Text(
+                        subtitle:
+                            Text(
                           connected
                               ? '${wearable.battery}% remaining'
                               : 'Unavailable',
@@ -346,9 +741,169 @@ class _OldPersonDashboardState
                       ),
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(
+                      height: 10,
+                    ),
 
-                    // Quick actions
+                    // --------------------------------------------------
+                    // INACTIVITY MONITORING
+                    // --------------------------------------------------
+
+                    Card(
+                      color:
+                          wearable
+                                  .inactivityAlertActive
+                              ? Colors
+                                  .orange
+                                  .shade50
+                              : null,
+                      child:
+                          Column(
+                        children: [
+                          SwitchListTile(
+                            secondary:
+                                Icon(
+                              wearable
+                                      .inactivityMonitoringEnabled
+                                  ? Icons
+                                      .directions_walk
+                                  : Icons
+                                      .directions_walk_outlined,
+                              color:
+                                  wearable
+                                          .inactivityMonitoringEnabled
+                                      ? Colors
+                                          .blue
+                                      : Colors
+                                          .grey,
+                            ),
+                            title:
+                                const Text(
+                              'Inactivity Monitoring',
+                              style:
+                                  TextStyle(
+                                fontWeight:
+                                    FontWeight
+                                        .bold,
+                              ),
+                            ),
+                            subtitle:
+                                Text(
+                              wearable
+                                      .inactivityMonitoringEnabled
+                                  ? 'Monitoring is ON'
+                                  : 'Monitoring is OFF',
+                            ),
+                            value:
+                                wearable
+                                    .inactivityMonitoringEnabled,
+                            onChanged:
+                                (value) async {
+                              await wearable
+                                  .setInactivityMonitoring(
+                                value,
+                              );
+                            },
+                          ),
+
+                          if (wearable
+                              .inactivityMonitoringEnabled)
+                            Column(
+                              children: [
+                                const Divider(
+                                  height: 1,
+                                ),
+
+                                ListTile(
+                                  leading:
+                                      const Icon(
+                                    Icons
+                                        .timer_outlined,
+                                    color:
+                                        Colors
+                                            .blue,
+                                  ),
+                                  title:
+                                      const Text(
+                                    'Alert after',
+                                  ),
+                                  subtitle:
+                                      Text(
+                                    wearable
+                                        .inactivityLimitText,
+                                  ),
+                                  trailing:
+                                      const Icon(
+                                    Icons
+                                        .arrow_forward_ios,
+                                    size: 16,
+                                  ),
+                                  onTap:
+                                      showInactivityLimitDialog,
+                                ),
+
+                                ListTile(
+                                  leading:
+                                      const Icon(
+                                    Icons
+                                        .bedtime,
+                                    color:
+                                        Colors
+                                            .indigo,
+                                  ),
+                                  title:
+                                      const Text(
+                                    'Sleep Schedule',
+                                  ),
+                                  subtitle:
+                                      Text(
+                                    wearable
+                                        .sleepScheduleText,
+                                  ),
+                                  trailing:
+                                      const Icon(
+                                    Icons
+                                        .arrow_forward_ios,
+                                    size: 16,
+                                  ),
+                                  onTap:
+                                      showSleepScheduleDialog,
+                                ),
+
+                                if (wearable
+                                    .inactivityAlertActive)
+                                  const Padding(
+                                    padding:
+                                        EdgeInsets.all(
+                                      12,
+                                    ),
+                                    child:
+                                        Text(
+                                      '⚠ Long inactivity detected. Automatic SOS may be triggered.',
+                                      textAlign:
+                                          TextAlign
+                                              .center,
+                                      style:
+                                          TextStyle(
+                                        color:
+                                            Colors
+                                                .deepOrange,
+                                        fontWeight:
+                                            FontWeight
+                                                .bold,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 18,
+                    ),
+
                     GridView.count(
                       crossAxisCount: 2,
                       shrinkWrap: true,
@@ -356,7 +911,8 @@ class _OldPersonDashboardState
                           const NeverScrollableScrollPhysics(),
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
-                      childAspectRatio: 1.15,
+                      childAspectRatio:
+                          1.15,
                       children: [
                         _quickButton(
                           context,
@@ -367,8 +923,9 @@ class _OldPersonDashboardState
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    const WearableScreen(),
+                                builder:
+                                    (context) =>
+                                        const WearableScreen(),
                               ),
                             );
                           },
@@ -382,8 +939,9 @@ class _OldPersonDashboardState
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    const LocationScreen(),
+                                builder:
+                                    (context) =>
+                                        const LocationScreen(),
                               ),
                             );
                           },
@@ -397,8 +955,9 @@ class _OldPersonDashboardState
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    const ContactsScreen(),
+                                builder:
+                                    (context) =>
+                                        const ContactsScreen(),
                               ),
                             );
                           },
@@ -412,8 +971,9 @@ class _OldPersonDashboardState
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    const WearableScreen(),
+                                builder:
+                                    (context) =>
+                                        const WearableScreen(),
                               ),
                             );
                           },
@@ -421,44 +981,63 @@ class _OldPersonDashboardState
                       ],
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(
+                      height: 18,
+                    ),
 
-                    // SOS
                     SizedBox(
-                      width: double.infinity,
+                      width:
+                          double.infinity,
                       height: 115,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
+                      child:
+                          ElevatedButton(
+                        style:
+                            ElevatedButton
+                                .styleFrom(
+                          backgroundColor:
+                              Colors.red,
+                          foregroundColor:
+                              Colors.white,
+                          shape:
+                              RoundedRectangleBorder(
                             borderRadius:
-                                BorderRadius.circular(18),
+                                BorderRadius.circular(
+                              18,
+                            ),
                           ),
                         ),
                         onPressed: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) =>
-                                  const SOSScreen(),
+                              builder:
+                                  (context) =>
+                                      const SOSScreen(),
                             ),
                           );
                         },
-                        child: const Column(
+                        child:
+                            const Column(
                           mainAxisAlignment:
-                              MainAxisAlignment.center,
+                              MainAxisAlignment
+                                  .center,
                           children: [
                             Icon(
                               Icons.warning,
                               size: 42,
                             ),
-                            SizedBox(height: 5),
+                            SizedBox(
+                              height: 5,
+                            ),
                             Text(
                               'SEND SOS ALERT',
-                              style: TextStyle(
-                                fontSize: 21,
-                                fontWeight: FontWeight.bold,
+                              style:
+                                  TextStyle(
+                                fontSize:
+                                    21,
+                                fontWeight:
+                                    FontWeight
+                                        .bold,
                               ),
                             ),
                           ],
@@ -466,9 +1045,10 @@ class _OldPersonDashboardState
                       ),
                     ),
 
-                    const SizedBox(height: 12),
+                    const SizedBox(
+                      height: 12,
+                    ),
 
-                    // Location
                     _optionCard(
                       context,
                       Icons.location_on,
@@ -478,14 +1058,14 @@ class _OldPersonDashboardState
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                const LocationScreen(),
+                            builder:
+                                (context) =>
+                                    const LocationScreen(),
                           ),
                         );
                       },
                     ),
 
-                    // Caretaker
                     _optionCard(
                       context,
                       Icons.contacts,
@@ -495,14 +1075,14 @@ class _OldPersonDashboardState
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                const ContactsScreen(),
+                            builder:
+                                (context) =>
+                                    const ContactsScreen(),
                           ),
                         );
                       },
                     ),
 
-                    // Wearable
                     _optionCard(
                       context,
                       Icons.watch,
@@ -512,27 +1092,39 @@ class _OldPersonDashboardState
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                const WearableScreen(),
+                            builder:
+                                (context) =>
+                                    const WearableScreen(),
                           ),
                         );
                       },
                     ),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(
+                      height: 10,
+                    ),
 
                     Card(
-                      color: Colors.blue.shade50,
-                      child: const Padding(
-                        padding: EdgeInsets.all(16),
+                      color:
+                          Colors.blue.shade50,
+                      child:
+                          const Padding(
+                        padding:
+                            EdgeInsets.all(
+                          16,
+                        ),
                         child: Row(
                           children: [
                             Icon(
-                              Icons.health_and_safety,
-                              color: Colors.blue,
+                              Icons
+                                  .health_and_safety,
+                              color:
+                                  Colors.blue,
                               size: 30,
                             ),
-                            SizedBox(width: 12),
+                            SizedBox(
+                              width: 12,
+                            ),
                             Expanded(
                               child: Text(
                                 'The wearable continuously provides health and fall detection information.',
@@ -559,7 +1151,8 @@ class _OldPersonDashboardState
   ) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding:
+            const EdgeInsets.all(16),
         child: Column(
           children: [
             Icon(
@@ -567,14 +1160,20 @@ class _OldPersonDashboardState
               size: 38,
               color: Colors.blue,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(
+              height: 8,
+            ),
             Text(title),
-            const SizedBox(height: 5),
+            const SizedBox(
+              height: 5,
+            ),
             Text(
               value,
-              style: const TextStyle(
+              style:
+                  const TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.bold,
+                fontWeight:
+                    FontWeight.bold,
               ),
             ),
           ],
@@ -593,27 +1192,40 @@ class _OldPersonDashboardState
     return Card(
       elevation: 2,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius:
+            BorderRadius.circular(18),
         onTap: onTap,
         child: Container(
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(18),
+          decoration:
+              BoxDecoration(
+            color:
+                color.withOpacity(
+              0.08,
+            ),
+            borderRadius:
+                BorderRadius.circular(
+              18,
+            ),
           ),
           child: Column(
             mainAxisAlignment:
-                MainAxisAlignment.center,
+                MainAxisAlignment
+                    .center,
             children: [
               Icon(
                 icon,
                 color: color,
                 size: 42,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(
+                height: 10,
+              ),
               Text(
                 title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+                style:
+                    const TextStyle(
+                  fontWeight:
+                      FontWeight.bold,
                   fontSize: 16,
                 ),
               ),
@@ -632,12 +1244,13 @@ class _OldPersonDashboardState
     VoidCallback onTap,
   ) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin:
+          const EdgeInsets.only(
+        bottom: 10,
+      ),
       child: ListTile(
-        leading: const Icon(
-          Icons.arrow_forward_ios,
-          size: 0,
-        ),
+        leading:
+            const SizedBox.shrink(),
         title: Row(
           children: [
             Icon(
@@ -645,23 +1258,33 @@ class _OldPersonDashboardState
               color: Colors.blue,
               size: 32,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(
+              width: 12,
+            ),
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+                style:
+                    const TextStyle(
+                  fontWeight:
+                      FontWeight.bold,
                   fontSize: 17,
                 ),
               ),
             ),
           ],
         ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(left: 44),
-          child: Text(subtitle),
+        subtitle:
+            Padding(
+          padding:
+              const EdgeInsets.only(
+            left: 44,
+          ),
+          child:
+              Text(subtitle),
         ),
-        trailing: const Icon(
+        trailing:
+            const Icon(
           Icons.arrow_forward_ios,
           size: 17,
         ),

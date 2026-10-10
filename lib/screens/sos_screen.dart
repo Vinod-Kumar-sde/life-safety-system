@@ -4,296 +4,637 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sms_sender/sms_sender.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:geolocator/geolocator.dart';
 
+import '../services/emergency_history_service.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
+import '../services/safety_notification_service.dart';
+import 'emergency_history_screen.dart';
 
 class SOSScreen extends StatefulWidget {
-  const SOSScreen({super.key});
+  final bool autoSend;
+
+  const SOSScreen({
+    super.key,
+    this.autoSend = false,
+  });
 
   @override
-  State<SOSScreen> createState() => _SOSScreenState();
+  State<SOSScreen> createState() =>
+      _SOSScreenState();
 }
 
 class _SOSScreenState extends State<SOSScreen> {
-  List<Map<String, String>> emergencyContacts = [];
+  bool sending = false;
 
-  bool loading = false;
-  bool internetAvailable = false;
+  bool networkAvailable = false;
+  bool simAvailable = false;
 
-  List<SimCard> simCards = [];
-  int? selectedSimSlot;
+  int contactCount = 0;
+  String topContact = 'No contact';
+
+  bool automaticStarted = false;
 
   @override
   void initState() {
     super.initState();
 
-    loadContacts();
-    checkNetwork();
-    detectSim();
+    loadSOSData();
+
+    if (widget.autoSend) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) {
+        if (!mounted ||
+            automaticStarted) {
+          return;
+        }
+
+        automaticStarted = true;
+
+        // Automatic safety triggers
+        // send immediately.
+        activateSOS();
+      });
+    }
   }
 
-  // ==========================
-  // LOAD CONTACTS
-  // ==========================
+  Future<void> loadSOSData() async {
+    try {
+      final prefs =
+          await SharedPreferences
+              .getInstance();
 
-  Future<void> loadContacts() async {
-    final prefs = await SharedPreferences.getInstance();
+      final savedContacts =
+          prefs.getStringList(
+                'emergency_contacts',
+              ) ??
+              [];
 
-    final savedContacts =
-        prefs.getStringList('emergency_contacts');
+      int count = 0;
+      String firstContact =
+          'No contact';
 
-    final loadedContacts = <Map<String, String>>[];
+      final validContacts =
+          <Map<String, String>>[];
 
-    if (savedContacts != null) {
-      for (final contact in savedContacts) {
+      for (final item in savedContacts) {
         try {
           final decoded =
-              jsonDecode(contact) as Map<String, dynamic>;
+              jsonDecode(item);
 
-          loadedContacts.add({
-            'name': decoded['name']?.toString() ?? '',
-            'phone': decoded['phone']?.toString() ?? '',
-          });
+          final contact =
+              Map<String, String>.from(
+            decoded,
+          );
+
+          final name =
+              contact['name']
+                      ?.trim() ??
+                  '';
+
+          final phone =
+              contact['phone']
+                      ?.trim() ??
+                  '';
+
+          if (phone.isNotEmpty) {
+            validContacts.add({
+              'name': name,
+              'phone': phone,
+              'primary':
+                  contact['primary'] ??
+                      'false',
+            });
+          }
         } catch (e) {
-          print('CONTACT LOAD ERROR: $e');
+          // Ignore invalid entries.
         }
+      }
+
+      count = validContacts.length;
+
+      if (validContacts.isNotEmpty) {
+        final primary =
+            validContacts.where(
+          (contact) =>
+              contact['primary'] ==
+              'true',
+        );
+
+        final selected =
+            primary.isNotEmpty
+                ? primary.first
+                : validContacts.first;
+
+        firstContact =
+            selected['name']
+                        ?.isNotEmpty ==
+                    true
+                ? selected['name']!
+                : selected['phone']!;
+      }
+
+      bool network = false;
+
+      try {
+        network =
+            await NetworkService
+                .isConnected();
+      } catch (e) {
+        network = false;
+      }
+
+      bool sim = false;
+
+      try {
+        final sims =
+            await SmsSender.getSimCards();
+
+        sim = sims.isNotEmpty;
+      } catch (e) {
+        sim = false;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        contactCount = count;
+        topContact = firstContact;
+        networkAvailable = network;
+        simAvailable = sim;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        contactCount = 0;
+        topContact = 'No contact';
+        networkAvailable = false;
+        simAvailable = false;
+      });
+    }
+  }
+
+  Future<List<Map<String, String>>>
+      getContacts() async {
+    final prefs =
+        await SharedPreferences
+            .getInstance();
+
+    final savedContacts =
+        prefs.getStringList(
+              'emergency_contacts',
+            ) ??
+            [];
+
+    final contacts =
+        <Map<String, String>>[];
+
+    for (final item in savedContacts) {
+      try {
+        final decoded =
+            jsonDecode(item);
+
+        final contact =
+            Map<String, String>.from(
+          decoded,
+        );
+
+        final phone =
+            contact['phone']
+                    ?.trim() ??
+                '';
+
+        if (phone.isNotEmpty) {
+          contacts.add({
+            'name':
+                contact['name']
+                        ?.trim() ??
+                    '',
+            'phone': phone,
+            'primary':
+                contact['primary'] ??
+                    'false',
+          });
+        }
+      } catch (e) {
+        // Ignore invalid entries.
       }
     }
 
-    if (!mounted) return;
+    contacts.sort((a, b) {
+      final aPrimary =
+          a['primary'] == 'true';
 
-    setState(() {
-      emergencyContacts = loadedContacts;
+      final bPrimary =
+          b['primary'] == 'true';
+
+      if (aPrimary && !bPrimary) {
+        return -1;
+      }
+
+      if (!aPrimary && bPrimary) {
+        return 1;
+      }
+
+      return 0;
     });
+
+    return contacts;
   }
 
-  // ==========================
-  // DETECT SIM
-  // ==========================
-
-  Future<void> detectSim() async {
-    try {
-      final detectedSims =
-          await SmsSender.getSimCards();
-
-      print('DETECTED SIMS: $detectedSims');
-
-      if (!mounted) return;
-
-      setState(() {
-        simCards = detectedSims;
-
-        if (detectedSims.isNotEmpty) {
-          selectedSimSlot =
-              detectedSims.first.simSlot;
-        } else {
-          selectedSimSlot = null;
-        }
-      });
-    } catch (e) {
-      print('SIM DETECTION ERROR: $e');
-
-      if (!mounted) return;
-
-      setState(() {
-        simCards = [];
-        selectedSimSlot = null;
-      });
-    }
-  }
-
-  // ==========================
-  // NETWORK
-  // ==========================
-
-  Future<void> checkNetwork() async {
-    final connected =
-        await NetworkService.isConnected();
-
-    if (!mounted) return;
-
-    setState(() {
-      internetAvailable = connected;
-    });
-  }
-
-  // ==========================
-  // MAIN SOS
-  // ==========================
+  // --------------------------------------------------
+  // SEND SOS
+  // --------------------------------------------------
 
   Future<void> activateSOS() async {
-    if (loading) return;
-
-    await loadContacts();
-    await detectSim();
-
-    if (emergencyContacts.isEmpty) {
-      showError(
-        'No emergency contacts found.\n'
-        'Please add at least one emergency contact.',
-      );
+    if (sending) {
       return;
     }
 
-    if (selectedSimSlot == null) {
-      showError(
-        'No active SIM detected by the SMS service.\n\n'
-        'Please make sure your SIM is enabled and can send normal SMS messages.',
-      );
-      return;
-    }
-
-    setState(() {
-      loading = true;
-    });
-
-    final position =
-        await LocationService.getCurrentLocation();
-
-    if (!mounted) return;
-
-    if (position == null) {
+    if (mounted) {
       setState(() {
-        loading = false;
+        sending = true;
       });
-
-      showLocationFailure();
-      return;
     }
 
-    await sendEmergencySMS(
-      position.latitude,
-      position.longitude,
-    );
-  }
+    final contacts =
+        await getContacts();
 
-  // ==========================
-  // SEND SMS
-  // ==========================
+    if (contacts.isEmpty) {
+      await EmergencyHistoryService
+          .saveEvent(
+        sentCount: 0,
+        failedCount: 0,
+        totalContacts: 0,
+        locationAvailable: false,
+        status: 'FAILED',
+        errorMessage:
+            'No emergency contacts are configured.',
+      );
 
-  Future<void> sendEmergencySMS(
-    double latitude,
-    double longitude,
-  ) async {
-    final locationLink =
-        'https://www.google.com/maps/search/?api=1'
-        '&query=$latitude,$longitude';
+      await SafetyNotificationService
+          .instance
+          .notifySosFailed(
+        'No emergency contacts are configured.',
+      );
 
-    final message =
-        'SOS! I need help.\n'
-        'My current location:\n'
-        '$locationLink';
+      if (mounted) {
+        setState(() {
+          sending = false;
+        });
+
+        await _showFailedDialog(
+          'No emergency contacts are configured.',
+        );
+      }
+
+      return;
+    }
 
     int sentCount = 0;
     int failedCount = 0;
 
-    for (final contact in emergencyContacts) {
-      final phone = contact['phone'];
+    String? lastError;
 
-      if (phone == null || phone.isEmpty) {
+    Position? position;
+
+    try {
+      position =
+          await LocationService
+              .getCurrentLocation();
+    } catch (e) {
+      position = null;
+    }
+
+    String message;
+
+    if (position != null) {
+      message =
+          'EMERGENCY ALERT!\n'
+          'I need help. Please contact me immediately.\n\n'
+          'My current location:\n'
+          'https://www.google.com/maps/search/?api=1'
+          '&query=${position.latitude},'
+          '${position.longitude}';
+    } else {
+      message =
+          'EMERGENCY ALERT!\n'
+          'I need help. Please contact me immediately.\n\n'
+          'My current GPS location is unavailable.';
+    }
+
+    List<SimCard> sims = [];
+
+    try {
+      sims =
+          await SmsSender.getSimCards();
+    } catch (e) {
+      sims = [];
+
+      lastError =
+          'Unable to access the device SIM card.';
+    }
+
+    if (sims.isEmpty) {
+      await EmergencyHistoryService
+          .saveEvent(
+        sentCount: 0,
+        failedCount: contacts.length,
+        totalContacts: contacts.length,
+        locationAvailable:
+            position != null,
+        latitude: position?.latitude,
+        longitude: position?.longitude,
+        status: 'FAILED',
+        errorMessage:
+            lastError ??
+                'No active SIM card was detected.',
+      );
+
+      await SafetyNotificationService
+          .instance
+          .notifySosFailed(
+        lastError ??
+            'No active SIM card was detected.',
+      );
+
+      if (mounted) {
+        setState(() {
+          sending = false;
+        });
+
+        await _showFailedDialog(
+          lastError ??
+              'No active SIM card was detected.',
+        );
+      }
+
+      return;
+    }
+
+    final selectedSimSlot =
+        sims.first.simSlot;
+
+    for (final contact in contacts) {
+      final phone =
+          contact['phone']?.trim();
+
+      if (phone == null ||
+          phone.isEmpty) {
         failedCount++;
+
+        lastError =
+            'One emergency contact has an invalid phone number.';
+
         continue;
       }
 
       try {
-        print(
-          'SENDING SMS TO $phone '
-          'USING SIM SLOT $selectedSimSlot',
-        );
-
-        final result = await SmsSender.sendSms(
+        await SmsSender.sendSms(
           phoneNumber: phone,
           message: message,
-          simSlot: selectedSimSlot!,
-        );
-
-        print(
-          'SMS SUCCESS FOR $phone: $result',
+          simSlot: selectedSimSlot,
         );
 
         sentCount++;
       } catch (e) {
         failedCount++;
 
-        print(
-          'SMS ERROR FOR $phone: $e',
-        );
-
-        if (mounted) {
-          showError(
-            'SMS failed for $phone\n\n'
-            'Error: $e',
-          );
-        }
+        lastError =
+            'Failed to send SMS to '
+            '${contact['name']?.isNotEmpty == true ? contact['name'] : phone}.';
       }
     }
 
-    if (!mounted) return;
+    String status;
 
-    setState(() {
-      loading = false;
-    });
-
-    if (sentCount == emergencyContacts.length) {
-      showSuccess(
-        'SOS sent successfully to '
-        '$sentCount contact(s).',
-      );
+    if (sentCount == contacts.length) {
+      status = 'SUCCESS';
     } else if (sentCount > 0) {
-      showError(
-        'SOS sent to $sentCount contact(s), '
-        'but $failedCount failed.',
+      status = 'PARTIAL';
+    } else {
+      status = 'FAILED';
+    }
+
+    await EmergencyHistoryService
+        .saveEvent(
+      sentCount: sentCount,
+      failedCount: failedCount,
+      totalContacts: contacts.length,
+      locationAvailable:
+          position != null,
+      latitude: position?.latitude,
+      longitude: position?.longitude,
+      status: status,
+      errorMessage: lastError,
+    );
+
+    if (status == 'SUCCESS') {
+      await SafetyNotificationService
+          .instance
+          .notifySosSuccess(
+        sentCount,
+      );
+    } else if (status == 'PARTIAL') {
+      await SafetyNotificationService
+          .instance
+          .notifySosPartial(
+        sentCount,
+        failedCount,
       );
     } else {
-      showError(
-        'SOS could not be sent.\n'
-        'Check the SMS error shown above.',
+      await SafetyNotificationService
+          .instance
+          .notifySosFailed(
+        lastError ??
+            'SOS SMS could not be sent.',
+      );
+    }
+
+    await loadSOSData();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      sending = false;
+    });
+
+    // Automatic SOS does not show
+    // the normal result dialog.
+    if (widget.autoSend) {
+      if (status == 'SUCCESS') {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          SnackBar(
+            backgroundColor:
+                Colors.green,
+            content: Text(
+              'Automatic SOS sent to $sentCount contact(s).',
+            ),
+          ),
+        );
+      } else if (status == 'PARTIAL') {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          SnackBar(
+            backgroundColor:
+                Colors.orange,
+            content: Text(
+              'SOS sent to $sentCount contact(s); '
+              '$failedCount failed.',
+            ),
+          ),
+        );
+      }
+
+      return;
+    }
+
+    if (status == 'SUCCESS') {
+      await _showResultDialog(
+        title: 'SOS Sent',
+        message:
+            'Emergency SMS was sent successfully to '
+            '$sentCount contact(s).',
+        color: Colors.green,
+        icon: Icons.check_circle,
+      );
+    } else if (status == 'PARTIAL') {
+      await _showResultDialog(
+        title: 'SOS Partially Sent',
+        message:
+            'SMS was sent to $sentCount contact(s), '
+            'but $failedCount failed.',
+        color: Colors.orange,
+        icon: Icons.warning_rounded,
+        showCallButton: true,
+      );
+    } else {
+      await _showFailedDialog(
+        lastError ??
+            'SOS SMS could not be sent.',
       );
     }
   }
 
-  // ==========================
-  // LOCATION FAILURE
-  // ==========================
+  // --------------------------------------------------
+  // CALL PRIMARY CONTACT
+  // --------------------------------------------------
 
-  void showLocationFailure() {
-    showDialog(
+  Future<void> callTopContact() async {
+    final contacts =
+        await getContacts();
+
+    if (contacts.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No emergency contacts available.',
+            ),
+          ),
+        );
+      }
+
+      return;
+    }
+
+    final phone =
+        contacts.first['phone'];
+
+    if (phone == null ||
+        phone.trim().isEmpty) {
+      return;
+    }
+
+    final uri =
+        Uri.parse('tel:$phone');
+
+    try {
+      final launched =
+          await launchUrl(uri);
+
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not open the phone app.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not open the phone app.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  // --------------------------------------------------
+  // RESULT DIALOG
+  // --------------------------------------------------
+
+  Future<void> _showResultDialog({
+    required String title,
+    required String message,
+    required Color color,
+    required IconData icon,
+    bool showCallButton = false,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog<void>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text(
-            'Location Unavailable',
+          title: Row(
+            children: [
+              Icon(
+                icon,
+                color: color,
+                size: 30,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(title),
+              ),
+            ],
           ),
-
-          content: const Text(
-            'GPS location could not be obtained.\n\n'
-            'You can still send the emergency SMS without location.',
-          ),
-
+          content: Text(message),
           actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('CANCEL'),
-            ),
-
+            if (showCallButton)
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  callTopContact();
+                },
+                child:
+                    const Text('CALL CONTACT'),
+              ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-
               onPressed: () {
                 Navigator.pop(context);
-
-                sendEmergencySMSWithoutLocation();
               },
-
-              child: const Text(
-                'SEND SOS ANYWAY',
-              ),
+              child: const Text('OK'),
             ),
           ],
         );
@@ -301,499 +642,450 @@ class _SOSScreenState extends State<SOSScreen> {
     );
   }
 
-  // ==========================
-  // SEND WITHOUT GPS
-  // ==========================
-
-  Future<void> sendEmergencySMSWithoutLocation() async {
-    if (selectedSimSlot == null) {
-      await detectSim();
-    }
-
-    if (selectedSimSlot == null) {
-      showError(
-        'No active SIM detected by the SMS service.',
-      );
+  Future<void> _showFailedDialog(
+    String reason,
+  ) async {
+    if (!mounted) {
       return;
     }
 
-    const message =
-        'SOS! I need help. '
-        'My current location could not be obtained.';
-
-    setState(() {
-      loading = true;
-    });
-
-    int sentCount = 0;
-    int failedCount = 0;
-
-    for (final contact in emergencyContacts) {
-      final phone = contact['phone'];
-
-      if (phone == null || phone.isEmpty) {
-        failedCount++;
-        continue;
-      }
-
-      try {
-        final result = await SmsSender.sendSms(
-          phoneNumber: phone,
-          message: message,
-          simSlot: selectedSimSlot!,
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(
+                Icons.error,
+                color: Colors.red,
+                size: 30,
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text('SOS Failed'),
+              ),
+            ],
+          ),
+          content: Text(
+            '$reason\n\n'
+            'You can try calling your primary emergency contact.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                callTopContact();
+              },
+              child:
+                  const Text('CALL CONTACT'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('OK'),
+            ),
+          ],
         );
-
-        print(
-          'SMS SUCCESS FOR $phone: $result',
-        );
-
-        sentCount++;
-      } catch (e) {
-        failedCount++;
-
-        print(
-          'SMS ERROR FOR $phone: $e',
-        );
-
-        if (mounted) {
-          showError(
-            'SMS failed for $phone\n\n'
-            'Error: $e',
-          );
-        }
-      }
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      loading = false;
-    });
-
-    if (sentCount > 0) {
-      showSuccess(
-        'SOS sent to $sentCount contact(s).',
-      );
-    } else {
-      showError(
-        'SOS could not be sent.',
-      );
-    }
-  }
-
-  // ==========================
-  // CALL TOP CONTACT
-  // ==========================
-
-  Future<void> callTopContact() async {
-    await loadContacts();
-
-    if (emergencyContacts.isEmpty) {
-      showError(
-        'No emergency contact available.',
-      );
-      return;
-    }
-
-    final phone =
-        emergencyContacts.first['phone'];
-
-    if (phone == null || phone.isEmpty) {
-      showError(
-        'Top contact has no valid phone number.',
-      );
-      return;
-    }
-
-    final phoneUri = Uri(
-      scheme: 'tel',
-      path: phone,
+      },
     );
-
-    try {
-      final launched =
-          await launchUrl(phoneUri);
-
-      if (!launched && mounted) {
-        showError(
-          'Unable to open phone dialer.',
-        );
-      }
-    } catch (e) {
-      print('CALL ERROR: $e');
-
-      if (mounted) {
-        showError(
-          'Unable to call emergency contact.\n'
-          'Error: $e',
-        );
-      }
-    }
   }
 
-  // ==========================
-  // SUCCESS
-  // ==========================
-
-  void showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
+  void openHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            const EmergencyHistoryScreen(),
       ),
     );
   }
 
-  // ==========================
-  // ERROR
-  // ==========================
-
-  void showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 6),
-      ),
-    );
-  }
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final hasContacts =
-        emergencyContacts.isNotEmpty;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Emergency SOS',
-        ),
-        backgroundColor: Colors.red,
-        foregroundColor: Colors.white,
+        title:
+            const Text('Emergency SOS'),
+        actions: [
+          IconButton(
+            onPressed: openHistory,
+            tooltip:
+                'Emergency History',
+            icon:
+                const Icon(Icons.history),
+          ),
+        ],
       ),
-
       body: RefreshIndicator(
-        onRefresh: () async {
-          await loadContacts();
-          await checkNetwork();
-          await detectSim();
-        },
-
+        onRefresh: loadSOSData,
         child: SingleChildScrollView(
           physics:
               const AlwaysScrollableScrollPhysics(),
-
-          padding: const EdgeInsets.all(20),
-
+          padding:
+              const EdgeInsets.all(20),
           child: Column(
             children: [
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
 
-              const Icon(
-                Icons.warning,
-                size: 90,
+              Icon(
+                sending
+                    ? Icons.sos
+                    : Icons.warning_rounded,
+                size: 85,
                 color: Colors.red,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 15),
 
               const Text(
                 'Emergency SOS',
                 style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 28,
+                  fontWeight:
+                      FontWeight.bold,
                 ),
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               const Text(
-                'Press SOS to immediately send an emergency message with your current location to all emergency contacts.',
-                textAlign: TextAlign.center,
+                'Send an emergency alert to your trusted contacts.',
+                textAlign:
+                    TextAlign.center,
                 style: TextStyle(
-                  fontSize: 16,
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              // SOS BUTTON
-              SizedBox(
-                width: double.infinity,
-                height: 150,
-
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(25),
-                    ),
-                  ),
-
-                  onPressed:
-                      loading ? null : activateSOS,
-
-                  child: loading
-                      ? const Column(
-                          mainAxisAlignment:
-                              MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              color: Colors.white,
-                            ),
-
-                            SizedBox(height: 10),
-
-                            Text(
-                              'SENDING SOS...',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight:
-                                    FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        )
-                      : const Column(
-                          mainAxisAlignment:
-                              MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.sos,
-                              size: 55,
-                            ),
-
-                            SizedBox(height: 8),
-
-                            Text(
-                              'SEND SOS',
-                              style: TextStyle(
-                                fontSize: 23,
-                                fontWeight:
-                                    FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // CALL BUTTON
-              SizedBox(
-                height: 45,
-
-                child: OutlinedButton.icon(
-                  onPressed:
-                      loading || !hasContacts
-                          ? null
-                          : callTopContact,
-
-                  icon: const Icon(
-                    Icons.call,
-                    size: 19,
-                  ),
-
-                  label: const Text(
-                    'CALL TOP CONTACT',
-                    style: TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
-                  ),
-
-                  style:
-                      OutlinedButton.styleFrom(
-                    foregroundColor:
-                        Colors.green,
-
-                    side: const BorderSide(
-                      color: Colors.green,
-                    ),
-                  ),
+                  color: Colors.grey,
+                  fontSize: 15,
                 ),
               ),
 
               const SizedBox(height: 25),
 
-              // NETWORK
-              Card(
-                child: ListTile(
-                  leading: Icon(
-                    internetAvailable
-                        ? Icons.wifi
-                        : Icons.wifi_off,
-                    color: internetAvailable
-                        ? Colors.green
-                        : Colors.orange,
-                  ),
+              _buildStatusCard(),
 
-                  title: const Text(
-                    'Network Status',
-                    style: TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
-                  ),
+              const SizedBox(height: 25),
 
-                  subtitle: Text(
-                    internetAvailable
-                        ? 'Internet available'
-                        : 'Internet unavailable',
-                  ),
-                ),
-              ),
+              // --------------------------------------------------
+              // SEND SOS BUTTON
+              // --------------------------------------------------
 
-              const SizedBox(height: 10),
-
-              // SIM STATUS
-              Card(
-                child: ListTile(
-                  leading: Icon(
-                    simCards.isNotEmpty
-                        ? Icons.sim_card
-                        : Icons
-                            .sim_card_alert,
-                    color: simCards.isNotEmpty
-                        ? Colors.green
-                        : Colors.red,
-                  ),
-
-                  title: const Text(
-                    'SIM Status',
-                    style: TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
-                  ),
-
-                  subtitle: Text(
-                    simCards.isNotEmpty
-                        ? 'SIM detected • Slot ${selectedSimSlot! + 1}'
-                        : 'No SIM detected by SMS service',
-                  ),
-
-                  trailing:
-                      simCards.isNotEmpty
-                          ? const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                            )
-                          : null,
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              // CONTACT STATUS
-              Card(
-                child: ListTile(
-                  leading: Icon(
-                    hasContacts
-                        ? Icons.contacts
-                        : Icons
-                            .contact_phone_outlined,
-                    color: hasContacts
-                        ? Colors.green
-                        : Colors.red,
-                  ),
-
-                  title: const Text(
-                    'Emergency Contacts',
-                    style: TextStyle(
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
-                  ),
-
-                  subtitle: Text(
-                    hasContacts
-                        ? '${emergencyContacts.length} contact(s) configured'
-                        : 'No contacts configured',
-                  ),
-
-                  trailing: hasContacts
-                      ? const Icon(
-                          Icons.check_circle,
-                          color: Colors.green,
-                        )
-                      : null,
-                ),
-              ),
-
-              const SizedBox(height: 15),
-
-              // TOP CONTACT
-              if (hasContacts)
-                Card(
-                  child: ListTile(
-                    leading:
-                        const CircleAvatar(
-                      child:
-                          Icon(Icons.person),
-                    ),
-
-                    title: Text(
-                      emergencyContacts.first[
-                              'name'] ??
-                          'Emergency Contact',
-                      style:
-                          const TextStyle(
-                        fontWeight:
-                            FontWeight.bold,
+              SizedBox(
+                width: double.infinity,
+                height: 170,
+                child: ElevatedButton(
+                  onPressed:
+                      sending
+                          ? null
+                          : activateSOS,
+                  style:
+                      ElevatedButton.styleFrom(
+                    backgroundColor:
+                        Colors.red,
+                    foregroundColor:
+                        Colors.white,
+                    shape:
+                        RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(
+                        20,
                       ),
                     ),
-
-                    subtitle: Text(
-                      emergencyContacts.first[
-                              'phone'] ??
-                          '',
-                    ),
-
-                    trailing:
-                        const Icon(
-                      Icons.call,
-                      color: Colors.green,
-                    ),
                   ),
-                ),
-
-              const SizedBox(height: 15),
-
-              // INFO
-              Card(
-                color: Colors.red.shade50,
-
-                child: const Padding(
-                  padding: EdgeInsets.all(16),
-
-                  child: Row(
+                  child: Column(
+                    mainAxisAlignment:
+                        MainAxisAlignment
+                            .center,
                     children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: Colors.red,
+                      const Icon(
+                        Icons.warning,
+                        size: 50,
                       ),
-
-                      SizedBox(width: 12),
-
-                      Expanded(
-                        child: Text(
-                          'SEND SOS sends the emergency SMS to every saved emergency contact using the detected SIM.',
+                      const SizedBox(
+                        height: 8,
+                      ),
+                      Text(
+                        sending
+                            ? 'SENDING SOS...'
+                            : 'SEND SOS ALERT',
+                        style:
+                            const TextStyle(
+                          fontSize: 21,
+                          fontWeight:
+                              FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
+
+              const SizedBox(height: 12),
+
+              // --------------------------------------------------
+              // CALL PRIMARY CONTACT BUTTON
+              // --------------------------------------------------
+
+              SizedBox(
+                width: double.infinity,
+                height: 58,
+                child: OutlinedButton.icon(
+                  onPressed:
+                      sending
+                          ? null
+                          : callTopContact,
+                  style:
+                      OutlinedButton.styleFrom(
+                    foregroundColor:
+                        Colors.green,
+                    side:
+                        const BorderSide(
+                      color: Colors.green,
+                      width: 1.5,
+                    ),
+                    shape:
+                        RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(
+                        14,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(
+                    Icons.phone,
+                    size: 26,
+                  ),
+                  label: const Text(
+                    'CALL PRIMARY CONTACT',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight:
+                          FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              if (sending)
+                const Padding(
+                  padding:
+                      EdgeInsets.only(
+                    bottom: 18,
+                  ),
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(
+                        color: Colors.red,
+                      ),
+                      SizedBox(
+                        height: 10,
+                      ),
+                      Text(
+                        'Sending emergency alerts...',
+                        style: TextStyle(
+                          fontWeight:
+                              FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              _buildSafetyInfo(),
+
+              const SizedBox(height: 20),
+
+              OutlinedButton.icon(
+                onPressed:
+                    openHistory,
+                icon: const Icon(
+                  Icons.history,
+                ),
+                label: const Text(
+                  'View Emergency History',
+                ),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusCard() {
+    return Card(
+      elevation: 0,
+      child: Padding(
+        padding:
+            const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            _statusRow(
+              icon:
+                  networkAvailable
+                      ? Icons.wifi
+                      : Icons.wifi_off,
+              title: 'Internet',
+              value:
+                  networkAvailable
+                      ? 'Available'
+                      : 'Unavailable',
+              color:
+                  networkAvailable
+                      ? Colors.green
+                      : Colors.orange,
+            ),
+            const Divider(
+              height: 22,
+            ),
+            _statusRow(
+              icon:
+                  simAvailable
+                      ? Icons.sim_card
+                      : Icons.sim_card_alert,
+              title: 'SIM Card',
+              value:
+                  simAvailable
+                      ? 'Available'
+                      : 'Unavailable',
+              color:
+                  simAvailable
+                      ? Colors.green
+                      : Colors.red,
+            ),
+            const Divider(
+              height: 22,
+            ),
+            _statusRow(
+              icon:
+                  Icons.contact_phone,
+              title:
+                  'Emergency Contacts',
+              value:
+                  '$contactCount',
+              color:
+                  contactCount > 0
+                      ? Colors.green
+                      : Colors.red,
+            ),
+            const Divider(
+              height: 22,
+            ),
+            _statusRow(
+              icon: Icons.person,
+              title: 'Primary Contact',
+              value: topContact,
+              color:
+                  contactCount > 0
+                      ? Colors.green
+                      : Colors.red,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statusRow({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          color: color,
+        ),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style:
+              const TextStyle(
+            fontWeight:
+                FontWeight.bold,
+          ),
+        ),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            value,
+            textAlign:
+                TextAlign.right,
+            style:
+                TextStyle(
+              color: color,
+              fontWeight:
+                  FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSafetyInfo() {
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.all(16),
+      decoration:
+          BoxDecoration(
+        color:
+            Colors.blue.withOpacity(
+          0.06,
+        ),
+        borderRadius:
+            BorderRadius.circular(16),
+        border: Border.all(
+          color:
+              Colors.blue.withOpacity(
+            0.12,
+          ),
+        ),
+      ),
+      child: const Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.shield,
+                color: Colors.blue,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Fail-Safe Emergency System',
+                style: TextStyle(
+                  fontWeight:
+                      FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10),
+          Text(
+            'Automatic safety triggers send the SOS directly without waiting for the user.',
+            style: TextStyle(
+              height: 1.45,
+            ),
+          ),
+          SizedBox(height: 7),
+          Text(
+            'The app attempts to send the emergency alert to every configured contact.',
+            style: TextStyle(
+              height: 1.45,
+            ),
+          ),
+        ],
       ),
     );
   }
